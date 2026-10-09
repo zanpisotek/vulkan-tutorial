@@ -1,0 +1,27 @@
+BasedOnStyle: LLVM
+
+IndentWidth: 4
+ContinuationIndentWidth: 4
+UseTab: Never
+ColumnLimit: 120
+
+# Braces stay on the same line.
+BreakBeforeBraces: Attach
+
+# int* pointer; const Thing& reference;
+DerivePointerAlignment: false
+PointerAlignment: Left
+ReferenceAlignment: Left
+
+# Preserve your blank-line grouping between functions.
+SeparateDefinitionBlocks: Leave
+MaxEmptyLinesToKeep: 2
+
+# Avoid pushing nested calls and lambdas far to the right.
+AlignAfterOpenBracket: false
+LambdaBodyIndentation: OuterScope
+
+# Keep multiline lambdas multiline.
+AllowShortLambdasOnASingleLine: None
+
+SortIncludes: Never
