@@ -31,6 +31,12 @@
 
 static constexpr int MAX_FRAMES_IN_FLIGHT = 2;
 
+struct UniformBufferObject {
+    glm::mat4 Model;
+    glm::mat4 View;
+    glm::mat4 Proj;
+    ;
+};
 struct Vertex {
     glm::vec2 Position;
     glm::vec3 Color;
@@ -83,10 +89,14 @@ class HelloTriangleApplication {
     void RecreateSwapchain();
     void CleanupSwapchain();
     void CreateImageViews();
+    void CreateDescriptorSetLayout();
     void CreateGraphicsPipeline();
     void CreateCommandPool();
     void CreateVertexBuffer();
     void CreateIndexBuffer();
+    void CreateUniformBuffers();
+    void CreateDescriptorPool();
+    void CreateDescriptorSets();
     void CreateCommandBuffers();
     void RecordCommandBuffer(uint32_t imageIndex);
     void TransitionImageLayout(uint32_t imageIndex, VkImageLayout oldLayout, VkImageLayout newLayout,
@@ -98,6 +108,7 @@ class HelloTriangleApplication {
     std::pair<VkBuffer, VkDeviceMemory> CreateBuffer(
         VkDeviceSize size, VkBufferUsageFlags usage, VkMemoryPropertyFlags properties);
     void CopyBuffer(VkBuffer& srcBuffer, VkBuffer& dstBuffer, VkDeviceSize size);
+    void UpdateUniformBuffer(uint32_t currentImage);
 
     void DrawFrame();
 
@@ -139,6 +150,9 @@ class HelloTriangleApplication {
     VkSwapchainKHR m_Swapchain = VK_NULL_HANDLE;
     std::vector<VkImage> m_SwapchainImages;
     std::vector<VkImageView> m_SwapchainImageViews;
+    VkDescriptorSetLayout m_DescriptorSetLayout = VK_NULL_HANDLE;
+    VkDescriptorPool m_DescriptorPool = VK_NULL_HANDLE;
+    std::vector<VkDescriptorSet> m_DescripotrSets;
     VkPipelineLayout m_PipelineLayout = VK_NULL_HANDLE;
     VkPipeline m_Pipeline = VK_NULL_HANDLE;
     VkCommandPool m_CommandPool = VK_NULL_HANDLE;
@@ -151,6 +165,9 @@ class HelloTriangleApplication {
     VkDeviceMemory m_VertexBufferMemory = VK_NULL_HANDLE;
     VkBuffer m_IndexBuffer = VK_NULL_HANDLE;
     VkDeviceMemory m_IndexBufferMemory = VK_NULL_HANDLE;
+    std::vector<VkBuffer> m_UniformBuffers;
+    std::vector<VkDeviceMemory> m_UniformBuffersMemory;
+    std::vector<void*> m_UniformBuffersMapped;
 
     uint32_t m_FrameIndex = 0;
     bool m_FramebufferResized = false;

@@ -3,11 +3,15 @@
 //
 
 #include "HelloTriangleApplication.h"
+#include <glm/glm.hpp>
+#include <glm/gtc/matrix_transform.hpp>
 
 #include <algorithm>
 #include <cassert>
+#include <chrono>
 #include <cstring>
 #include <fstream>
+#include <vector>
 #include <vector>
 
 
@@ -80,10 +84,14 @@ void HelloTriangleApplication::InitVulkan() {
     CreateLogicalDevice();
     CreateSwapchain();
     CreateImageViews();
+    CreateDescriptorSetLayout();
     CreateGraphicsPipeline();
     CreateCommandPool();
     CreateVertexBuffer();
     CreateIndexBuffer();
+    CreateUniformBuffers();
+    CreateDescriptorPool();
+    CreateDescriptorSets();
     CreateCommandBuffers();
     CreateSyncObjects();
 }
@@ -99,6 +107,14 @@ void HelloTriangleApplication::MainLoop() {
 void HelloTriangleApplication::Cleanup() {
     glfwDestroyWindow(m_Window);
 
+    vkDestroyDescriptorPool(m_Device, m_DescriptorPool, nullptr);
+    vkDestroyDescriptorSetLayout(m_Device, m_DescriptorSetLayout, nullptr);
+    for (auto& uboBuffer : m_UniformBuffers) {
+        vkDestroyBuffer(m_Device, uboBuffer, nullptr);
+    }
+    for (auto& uboMem : m_UniformBuffersMemory) {
+        vkFreeMemory(m_Device, uboMem, nullptr);
+    }
     for (size_t i = 0; i < MAX_FRAMES_IN_FLIGHT; ++i) {
         vkDestroyFence(m_Device, m_InFlightFences[i], nullptr);
         vkDestroySemaphore(m_Device, m_PresentCompleteSemaphores[i], nullptr);
@@ -487,6 +503,20 @@ void HelloTriangleApplication::CreateImageViews() {
         m_SwapchainImageViews.push_back(imageView);
     }
 }
+void HelloTriangleApplication::CreateDescriptorSetLayout() {
+    VkDescriptorSetLayoutBinding uboLayoutBinding = {
+        .binding = 0,
+        .descriptorType = VK_DESCRIPTOR_TYPE_UNIFORM_BUFFER,
+        .descriptorCount = 1,
+        .stageFlags = VK_SHADER_STAGE_VERTEX_BIT,
+    };
+
+    VkDescriptorSetLayoutCreateInfo layoutInfo = {.sType = VK_STRUCTURE_TYPE_DESCRIPTOR_SET_LAYOUT_CREATE_INFO,
+        .bindingCount = 1,
+        .pBindings = &uboLayoutBinding};
+
+    VK_CHECK(vkCreateDescriptorSetLayout(m_Device, &layoutInfo, nullptr, &m_DescriptorSetLayout));
+}
 
 void HelloTriangleApplication::CreateGraphicsPipeline() {
     auto vertexCode = ReadFile("shaders/Basic.vert.spv");
@@ -524,7 +554,8 @@ void HelloTriangleApplication::CreateGraphicsPipeline() {
     };
 
     VkViewport viewport = {
-        0.0f, 0.0f, static_cast<float>(m_SwapchainExtnet.width), static_cast<float>(m_SwapchainExtnet.height)};
+        0.0f,
+        0.0f, static_cast<float>(m_SwapchainExtnet.width), static_cast<float>(m_SwapchainExtnet.height)};
 
     // Draw to entire framebuffer so scissor rect should cover it entirely
     VkRect2D scissor{VkOffset2D(0, 0), m_SwapchainExtnet};
@@ -546,7 +577,7 @@ void HelloTriangleApplication::CreateGraphicsPipeline() {
         .rasterizerDiscardEnable = VK_FALSE,
         .polygonMode = VK_POLYGON_MODE_FILL,
         .cullMode = VK_CULL_MODE_BACK_BIT,
-        .frontFace = VK_FRONT_FACE_CLOCKWISE,
+        .frontFace = VK_FRONT_FACE_COUNTER_CLOCKWISE, // we flipped y
         .depthBiasEnable = VK_FALSE,
         .lineWidth = 1.0f,
     };
@@ -572,7 +603,8 @@ void HelloTriangleApplication::CreateGraphicsPipeline() {
 
     VkPipelineLayoutCreateInfo pipelineLayoutInfo{
         .sType = VK_STRUCTURE_TYPE_PIPELINE_LAYOUT_CREATE_INFO,
-        .setLayoutCount = 0,
+        .setLayoutCount = 1,
+        .pSetLayouts = &m_DescriptorSetLayout,
         .pushConstantRangeCount = 0,
     };
 
@@ -651,6 +683,67 @@ void HelloTriangleApplication::CreateIndexBuffer() {
     vkDestroyBuffer(m_Device, stagingBuffer, nullptr);
     vkFreeMemory(m_Device, stagingBufferMemory, nullptr);
 }
+void HelloTriangleApplication::CreateUniformBuffers() {
+    m_UniformBuffersMapped.resize(MAX_FRAMES_IN_FLIGHT);
+
+    for (size_t i = 0; i < MAX_FRAMES_IN_FLIGHT; ++i) {
+        VkDeviceSize bufferSize = sizeof(UniformBufferObject);
+        auto [buffer, bufferMem] = CreateBuffer(bufferSize, VK_BUFFER_USAGE_UNIFORM_BUFFER_BIT,
+            VK_MEMORY_PROPERTY_HOST_VISIBLE_BIT | VK_MEMORY_PROPERTY_HOST_COHERENT_BIT);
+        m_UniformBuffers.push_back(buffer);
+        m_UniformBuffersMemory.push_back(bufferMem);
+        void* data;
+        VK_CHECK(vkMapMemory(m_Device, bufferMem, 0, bufferSize, 0, &m_UniformBuffersMapped[i]));
+    }
+}
+void HelloTriangleApplication::CreateDescriptorPool() {
+    VkDescriptorPoolSize poolSize = {
+        .type = VK_DESCRIPTOR_TYPE_UNIFORM_BUFFER,
+        .descriptorCount = MAX_FRAMES_IN_FLIGHT,
+    };
+
+    VkDescriptorPoolCreateInfo poolInfo = {
+        .sType = VK_STRUCTURE_TYPE_DESCRIPTOR_POOL_CREATE_INFO,
+        .flags = VK_DESCRIPTOR_POOL_CREATE_FREE_DESCRIPTOR_SET_BIT,
+        .maxSets = MAX_FRAMES_IN_FLIGHT,
+        .poolSizeCount = 1,
+        .pPoolSizes = &poolSize,
+    };
+
+    VK_CHECK(vkCreateDescriptorPool(m_Device, &poolInfo, nullptr, &m_DescriptorPool));
+}
+void HelloTriangleApplication::CreateDescriptorSets() {
+    std::vector<VkDescriptorSetLayout> layouts(MAX_FRAMES_IN_FLIGHT, m_DescriptorSetLayout);
+    m_DescripotrSets.resize(layouts.size());
+
+    VkDescriptorSetAllocateInfo allocInfo = {
+        .sType = VK_STRUCTURE_TYPE_DESCRIPTOR_SET_ALLOCATE_INFO,
+        .descriptorPool = m_DescriptorPool,
+        .descriptorSetCount = static_cast<uint32_t>(layouts.size()),
+        .pSetLayouts = layouts.data(),
+    };
+
+    VK_CHECK(vkAllocateDescriptorSets(m_Device, &allocInfo, m_DescripotrSets.data()));
+
+    for (size_t i = 0; i < MAX_FRAMES_IN_FLIGHT; ++i) {
+        VkDescriptorBufferInfo bufferInfo = {
+            .buffer = m_UniformBuffers[i],
+            .offset = 0,
+            .range = sizeof(UniformBufferObject),
+        };
+
+        VkWriteDescriptorSet descriptorWrite = {
+            .sType = VK_STRUCTURE_TYPE_WRITE_DESCRIPTOR_SET,
+            .dstSet = m_DescripotrSets[i],
+            .dstBinding = 0,
+            .dstArrayElement = 0,
+            .descriptorCount = 1,
+            .descriptorType = VK_DESCRIPTOR_TYPE_UNIFORM_BUFFER,
+            .pBufferInfo = &bufferInfo,
+        };
+        vkUpdateDescriptorSets(m_Device, 1, &descriptorWrite, 0, nullptr);
+    }
+}
 void HelloTriangleApplication::CreateCommandBuffers() {
     m_CommandBuffers.resize(MAX_FRAMES_IN_FLIGHT);
     VkCommandBufferAllocateInfo allocInfo = {
@@ -699,10 +792,15 @@ void HelloTriangleApplication::RecordCommandBuffer(uint32_t imageIndex) {
     vkCmdBindVertexBuffers(commandBuffer, 0, 1, &m_VertexBuffer, &offset);
     vkCmdBindIndexBuffer(commandBuffer, m_IndexBuffer, offset, VK_INDEX_TYPE_UINT16);
 
-    VkViewport viewport{.x = 0.0f,
-        .y = 0.0f,
+    vkCmdBindDescriptorSets(commandBuffer, VK_PIPELINE_BIND_POINT_GRAPHICS, m_PipelineLayout, 0,
+        1, &m_DescripotrSets[m_FrameIndex], 0, nullptr);
+
+
+    VkViewport viewport{
+        .x = 0.0f,
+        .y = static_cast<float>(m_SwapchainExtnet.height),
         .width = static_cast<float>(m_SwapchainExtnet.width),
-        .height = static_cast<float>(m_SwapchainExtnet.height),
+        .height = -static_cast<float>(m_SwapchainExtnet.height), // flipped so the image is not upside down (can be done differently probs)
         .minDepth = 0.0f,
         .maxDepth = 1.0f};
 
@@ -713,7 +811,7 @@ void HelloTriangleApplication::RecordCommandBuffer(uint32_t imageIndex) {
     };
     vkCmdSetScissor(commandBuffer, 0, 1, &scissor);
 
-    //vkCmdDraw(commandBuffer, m_Vertices.size(), 1, 0, 0);
+    // vkCmdDraw(commandBuffer, m_Vertices.size(), 1, 0, 0);
     vkCmdDrawIndexed(commandBuffer, static_cast<uint32_t>(m_Indices.size()), 1, 0, 0, 0);
 
     vkCmdEndRendering(commandBuffer);
@@ -852,6 +950,21 @@ void HelloTriangleApplication::CopyBuffer(VkBuffer& srcBuffer, VkBuffer& dstBuff
     vkQueueSubmit(m_GraphicsQueue, 1, &submitInfo, nullptr);
     vkQueueWaitIdle(m_GraphicsQueue);
 }
+void HelloTriangleApplication::UpdateUniformBuffer(uint32_t currentImage) {
+    static auto startTime = std::chrono::high_resolution_clock::now();
+
+    auto currentTime = std::chrono::high_resolution_clock::now();
+    float time = std::chrono::duration<float, std::chrono::seconds::period>(currentTime - startTime).count();
+
+    UniformBufferObject ubo{};
+    ubo.Model = glm::rotate(glm::mat4(1.0f), time * glm::radians(90.0f), glm::vec3(0.0f, 0.0f, 1.0f));
+    ubo.View = glm::lookAt(glm::vec3(2.0f, 2.0f, 2.0f), glm::vec3(0.0f, 0.0f, 0.0f), glm::vec3(0.0f, 0.0f, 1.0f));
+    ubo.Proj = glm::perspective(glm::radians(45.0f),
+        static_cast<float>(m_SwapchainExtnet.width) / static_cast<float>(m_SwapchainExtnet.height), 0.1f, 10.0f);
+
+    memcpy(m_UniformBuffersMapped[currentImage], &ubo, sizeof(ubo));
+
+}
 void HelloTriangleApplication::DrawFrame() {
     VkResult fenceResult = vkWaitForFences(m_Device, 1, &m_InFlightFences[m_FrameIndex], VK_TRUE, UINT64_MAX);
     if (fenceResult != VK_SUCCESS) {
@@ -876,6 +989,8 @@ void HelloTriangleApplication::DrawFrame() {
 
     VK_CHECK(vkResetCommandBuffer(m_CommandBuffers[m_FrameIndex], 0));
     RecordCommandBuffer(imageIndex);
+
+    UpdateUniformBuffer(m_FrameIndex);
 
     VkPipelineStageFlags waitDestinationStageMask = VK_PIPELINE_STAGE_COLOR_ATTACHMENT_OUTPUT_BIT;
 
