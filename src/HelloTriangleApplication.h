@@ -32,10 +32,9 @@
 static constexpr int MAX_FRAMES_IN_FLIGHT = 2;
 
 struct UniformBufferObject {
-    glm::mat4 Model;
-    glm::mat4 View;
-    glm::mat4 Proj;
-    ;
+    alignas(16) glm::mat4 Model;
+    alignas(16) glm::mat4 View;
+    alignas(16) glm::mat4 Proj;
 };
 struct Vertex {
     glm::vec2 Position;
