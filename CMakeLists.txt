@@ -16,6 +16,13 @@ add_executable(VulkanTutorial ${SOURCES})
 
 target_compile_features(VulkanTutorial PRIVATE cxx_std_20)
 
+target_include_directories(VulkanTutorial PRIVATE
+        "${CMAKE_CURRENT_SOURCE_DIR}/external/stb"
+)
+target_sources(VulkanTutorial PRIVATE
+        "${CMAKE_CURRENT_SOURCE_DIR}/external/stb/stb_image.cpp"
+)
+
 set_target_properties(VulkanTutorial PROPERTIES
         CXX_EXTENSIONS OFF
 )

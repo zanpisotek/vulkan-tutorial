@@ -39,15 +39,17 @@ struct UniformBufferObject {
 struct Vertex {
     glm::vec2 Position;
     glm::vec3 Color;
+    glm::vec2 TexCoord;
 
     static VkVertexInputBindingDescription GetBindingDescription() {
         return {.binding = 0, .stride = sizeof(Vertex), .inputRate = VK_VERTEX_INPUT_RATE_VERTEX};
     }
 
-    static std::array<VkVertexInputAttributeDescription, 2> GetAttributeDescriptions() {
+    static std::array<VkVertexInputAttributeDescription, 3> GetAttributeDescriptions() {
         return {{
             {.location = 0, .binding = 0, .format = VK_FORMAT_R32G32_SFLOAT, .offset = offsetof(Vertex, Position)},
             {.location = 1, .binding = 0, .format = VK_FORMAT_R32G32B32_SFLOAT, .offset = offsetof(Vertex, Color)},
+            {.location = 2, .binding = 0, .format = VK_FORMAT_R32G32_SFLOAT, .offset = offsetof(Vertex, TexCoord)}
         }};
     }
 };
@@ -91,6 +93,9 @@ class HelloTriangleApplication {
     void CreateDescriptorSetLayout();
     void CreateGraphicsPipeline();
     void CreateCommandPool();
+    void CreateTextureImage();
+    void CreateTextureImageView();
+    void CreateTextureSampler();
     void CreateVertexBuffer();
     void CreateIndexBuffer();
     void CreateUniformBuffers();
@@ -101,13 +106,17 @@ class HelloTriangleApplication {
     void TransitionImageLayout(uint32_t imageIndex, VkImageLayout oldLayout, VkImageLayout newLayout,
         VkAccessFlags2 srcAccessMask, VkAccessFlags2 destAccessMask, VkPipelineStageFlags2 srcStageMask,
         VkPipelineStageFlags2 destStageMask);
+    void TransitionImageLayout(
+        VkCommandBuffer commandBuffer, const VkImage& image, VkImageLayout oldLayout, VkImageLayout newLayout);
     void CreateSyncObjects();
     uint32_t FindMemoryType(uint32_t typeFilter, VkMemoryPropertyFlags properties);
 
     std::pair<VkBuffer, VkDeviceMemory> CreateBuffer(
         VkDeviceSize size, VkBufferUsageFlags usage, VkMemoryPropertyFlags properties);
     void CopyBuffer(VkBuffer& srcBuffer, VkBuffer& dstBuffer, VkDeviceSize size);
+    void CopyBufferToImage(VkCommandBuffer& commandBuffer, const VkBuffer& buffer, VkImage& image, uint32_t width, uint32_t height);
     void UpdateUniformBuffer(uint32_t currentImage);
+    VkImageView CreateImageView(VkImage const& image, VkFormat format);
 
     void DrawFrame();
 
@@ -116,6 +125,10 @@ class HelloTriangleApplication {
     // Helpers
     static std::vector<char> ReadFile(const std::string& filename);
     [[nodiscard]] VkShaderModule CreateShaderModule(const std::vector<char>& code) const;
+    std::pair<VkImage, VkDeviceMemory> CreateImage(uint32_t width, uint32_t height, VkFormat format,
+        VkImageTiling tiling, VkImageUsageFlags usage, VkMemoryPropertyFlags properties);
+    VkCommandBuffer BeginSingleTimeCommands();
+    void EndSingleTimeCommands(VkCommandBuffer commandBuffer);
 
     // Loaded
     void vkCreateDebugUtilsMessengerEXT(VkInstance instance, VkDebugUtilsMessengerCreateInfoEXT* createInfo,
@@ -167,16 +180,20 @@ class HelloTriangleApplication {
     std::vector<VkBuffer> m_UniformBuffers;
     std::vector<VkDeviceMemory> m_UniformBuffersMemory;
     std::vector<void*> m_UniformBuffersMapped;
+    VkImage m_TextureImage = VK_NULL_HANDLE;
+    VkDeviceMemory m_TextureImageMemory = VK_NULL_HANDLE;
+    VkImageView m_TextureImageView = VK_NULL_HANDLE;
+    VkSampler m_TextureSampler = VK_NULL_HANDLE;
 
     uint32_t m_FrameIndex = 0;
     bool m_FramebufferResized = false;
 
     // clang-format off
     std::vector<Vertex> m_Vertices = {
-        {{-0.5f, -0.5f}, {1.0f, 1.0f, 1.0f}},
-        {{ 0.5f, -0.5f}, {0.0f, 1.0f, 0.0f}},
-        {{ 0.5f,  0.5f}, {0.0f, 0.0f, 1.0f}},
-        {{-0.5f,  0.5f}, {1.0f, 0.0f, 0.0f}}
+        {{-0.5f, -0.5f}, {1.0f, 1.0f, 1.0f}, {1.0f, 0.0f}},
+        {{ 0.5f, -0.5f}, {0.0f, 1.0f, 0.0f}, {0.0f, 0.0f}},
+        {{ 0.5f,  0.5f}, {0.0f, 0.0f, 1.0f}, {0.0f, 1.0f}},
+        {{-0.5f,  0.5f}, {1.0f, 0.0f, 0.0f}, {1.0f, 1.0f}}
     };
     // clang-format on
 
