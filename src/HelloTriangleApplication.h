@@ -37,7 +37,7 @@ struct UniformBufferObject {
     alignas(16) glm::mat4 Proj;
 };
 struct Vertex {
-    glm::vec2 Position;
+    glm::vec3 Position;
     glm::vec3 Color;
     glm::vec2 TexCoord;
 
@@ -46,11 +46,12 @@ struct Vertex {
     }
 
     static std::array<VkVertexInputAttributeDescription, 3> GetAttributeDescriptions() {
-        return {{
-            {.location = 0, .binding = 0, .format = VK_FORMAT_R32G32_SFLOAT, .offset = offsetof(Vertex, Position)},
+        return {{{.location = 0,
+                     .binding = 0,
+                     .format = VK_FORMAT_R32G32B32_SFLOAT,
+                     .offset = offsetof(Vertex, Position)},
             {.location = 1, .binding = 0, .format = VK_FORMAT_R32G32B32_SFLOAT, .offset = offsetof(Vertex, Color)},
-            {.location = 2, .binding = 0, .format = VK_FORMAT_R32G32_SFLOAT, .offset = offsetof(Vertex, TexCoord)}
-        }};
+            {.location = 2, .binding = 0, .format = VK_FORMAT_R32G32_SFLOAT, .offset = offsetof(Vertex, TexCoord)}}};
     }
 };
 
@@ -93,6 +94,7 @@ class HelloTriangleApplication {
     void CreateDescriptorSetLayout();
     void CreateGraphicsPipeline();
     void CreateCommandPool();
+    void CreateDepthResources();
     void CreateTextureImage();
     void CreateTextureImageView();
     void CreateTextureSampler();
@@ -103,9 +105,9 @@ class HelloTriangleApplication {
     void CreateDescriptorSets();
     void CreateCommandBuffers();
     void RecordCommandBuffer(uint32_t imageIndex);
-    void TransitionImageLayout(uint32_t imageIndex, VkImageLayout oldLayout, VkImageLayout newLayout,
+    void TransitionImageLayout(const VkImage& image, VkImageLayout oldLayout, VkImageLayout newLayout,
         VkAccessFlags2 srcAccessMask, VkAccessFlags2 destAccessMask, VkPipelineStageFlags2 srcStageMask,
-        VkPipelineStageFlags2 destStageMask);
+        VkPipelineStageFlags2 destStageMask, VkImageAspectFlags imageAspectFlags);
     void TransitionImageLayout(
         VkCommandBuffer commandBuffer, const VkImage& image, VkImageLayout oldLayout, VkImageLayout newLayout);
     void CreateSyncObjects();
@@ -114,9 +116,13 @@ class HelloTriangleApplication {
     std::pair<VkBuffer, VkDeviceMemory> CreateBuffer(
         VkDeviceSize size, VkBufferUsageFlags usage, VkMemoryPropertyFlags properties);
     void CopyBuffer(VkBuffer& srcBuffer, VkBuffer& dstBuffer, VkDeviceSize size);
-    void CopyBufferToImage(VkCommandBuffer& commandBuffer, const VkBuffer& buffer, VkImage& image, uint32_t width, uint32_t height);
+    void CopyBufferToImage(
+        VkCommandBuffer& commandBuffer, const VkBuffer& buffer, VkImage& image, uint32_t width, uint32_t height);
     void UpdateUniformBuffer(uint32_t currentImage);
-    VkImageView CreateImageView(VkImage const& image, VkFormat format);
+    VkImageView CreateImageView(VkImage const& image, VkFormat format, VkImageAspectFlags aspectFlags);
+    VkFormat FindSupportedFormat(
+        const std::vector<VkFormat>& candidates, VkImageTiling tiling, VkFormatFeatureFlags features);
+    VkFormat FindDepthFormat();
 
     void DrawFrame();
 
@@ -184,18 +190,30 @@ class HelloTriangleApplication {
     VkDeviceMemory m_TextureImageMemory = VK_NULL_HANDLE;
     VkImageView m_TextureImageView = VK_NULL_HANDLE;
     VkSampler m_TextureSampler = VK_NULL_HANDLE;
+    VkImage m_DepthImage = VK_NULL_HANDLE;
+    VkDeviceMemory m_DepthImageMemory = VK_NULL_HANDLE;
+    VkImageView m_DepthImageView = VK_NULL_HANDLE;
 
     uint32_t m_FrameIndex = 0;
     bool m_FramebufferResized = false;
 
     // clang-format off
     std::vector<Vertex> m_Vertices = {
-        {{-0.5f, -0.5f}, {1.0f, 1.0f, 1.0f}, {1.0f, 0.0f}},
-        {{ 0.5f, -0.5f}, {0.0f, 1.0f, 0.0f}, {0.0f, 0.0f}},
-        {{ 0.5f,  0.5f}, {0.0f, 0.0f, 1.0f}, {0.0f, 1.0f}},
-        {{-0.5f,  0.5f}, {1.0f, 0.0f, 0.0f}, {1.0f, 1.0f}}
-    };
-    // clang-format on
+        {{-0.5f, -0.5f, 0.0f}, {1.0f, 1.0f, 1.0f}, {1.0f, 0.0f}},
+        {{ 0.5f, -0.5f, 0.0f}, {0.0f, 1.0f, 0.0f}, {0.0f, 0.0f}},
+        {{ 0.5f,  0.5f, 0.0f}, {0.0f, 0.0f, 1.0f}, {0.0f, 1.0f}},
+        {{-0.5f,  0.5f, 0.0f}, {1.0f, 0.0f, 0.0f}, {1.0f, 1.0f}},
 
-    const std::vector<uint16_t> m_Indices = {0, 1, 2, 2, 3, 0};
+        {{-0.5f, -0.5f, -0.5f}, {1.0f, 1.0f, 1.0f}, {1.0f, 0.0f}},
+        {{ 0.5f, -0.5f, -0.5f}, {0.0f, 1.0f, 0.0f}, {0.0f, 0.0f}},
+        {{ 0.5f,  0.5f, -0.5f}, {0.0f, 0.0f, 1.0f}, {0.0f, 1.0f}},
+        {{-0.5f,  0.5f, -0.5f}, {1.0f, 0.0f, 0.0f}, {1.0f, 1.0f}}
+    };
+
+    const std::vector<uint16_t> m_Indices = {
+        0, 1, 2, 2, 3, 0,
+        4, 5, 6, 6, 7, 4,
+    };
+
+    // clang-format on
 };
