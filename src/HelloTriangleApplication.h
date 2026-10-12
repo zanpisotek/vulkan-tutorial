@@ -53,12 +53,18 @@ struct Vertex {
             {.location = 1, .binding = 0, .format = VK_FORMAT_R32G32B32_SFLOAT, .offset = offsetof(Vertex, Color)},
             {.location = 2, .binding = 0, .format = VK_FORMAT_R32G32_SFLOAT, .offset = offsetof(Vertex, TexCoord)}}};
     }
+    bool operator==(const Vertex& other) const {
+        return Position == other.Position && Color == other.Color && TexCoord == other.TexCoord;
+    }
 };
 
 class HelloTriangleApplication {
   public:
     static constexpr uint32_t WIDTH = 1600;
     static constexpr uint32_t HEIGHT = 900;
+    const std::string MODEL_PATH = "assets/models/viking_room.obj";
+    const std::string TEXTURE_PATH = "assets/textures/viking_room.png";
+
     const std::vector<const char*> validationLayers = {"VK_LAYER_KHRONOS_validation"};
 
     const std::vector<const char*> requiredDeviceExtensions = {VK_KHR_SWAPCHAIN_EXTENSION_NAME};
@@ -98,6 +104,7 @@ class HelloTriangleApplication {
     void CreateTextureImage();
     void CreateTextureImageView();
     void CreateTextureSampler();
+    void LoadModel();
     void CreateVertexBuffer();
     void CreateIndexBuffer();
     void CreateUniformBuffers();
@@ -179,6 +186,8 @@ class HelloTriangleApplication {
     std::vector<VkSemaphore> m_RenderFinishedSemaphores;
     std::vector<VkFence> m_InFlightFences;
 
+    std::vector<Vertex> m_Vertices;
+    std::vector<uint32_t> m_Indices;
     VkBuffer m_VertexBuffer = VK_NULL_HANDLE;
     VkDeviceMemory m_VertexBufferMemory = VK_NULL_HANDLE;
     VkBuffer m_IndexBuffer = VK_NULL_HANDLE;
@@ -198,22 +207,21 @@ class HelloTriangleApplication {
     bool m_FramebufferResized = false;
 
     // clang-format off
-    std::vector<Vertex> m_Vertices = {
-        {{-0.5f, -0.5f, 0.0f}, {1.0f, 1.0f, 1.0f}, {1.0f, 0.0f}},
-        {{ 0.5f, -0.5f, 0.0f}, {0.0f, 1.0f, 0.0f}, {0.0f, 0.0f}},
-        {{ 0.5f,  0.5f, 0.0f}, {0.0f, 0.0f, 1.0f}, {0.0f, 1.0f}},
-        {{-0.5f,  0.5f, 0.0f}, {1.0f, 0.0f, 0.0f}, {1.0f, 1.0f}},
-
-        {{-0.5f, -0.5f, -0.5f}, {1.0f, 1.0f, 1.0f}, {1.0f, 0.0f}},
-        {{ 0.5f, -0.5f, -0.5f}, {0.0f, 1.0f, 0.0f}, {0.0f, 0.0f}},
-        {{ 0.5f,  0.5f, -0.5f}, {0.0f, 0.0f, 1.0f}, {0.0f, 1.0f}},
-        {{-0.5f,  0.5f, -0.5f}, {1.0f, 0.0f, 0.0f}, {1.0f, 1.0f}}
-    };
-
-    const std::vector<uint16_t> m_Indices = {
-        0, 1, 2, 2, 3, 0,
-        4, 5, 6, 6, 7, 4,
-    };
-
+    //std::vector<Vertex> m_Vertices = {
+    //    {{-0.5f, -0.5f, 0.0f}, {1.0f, 1.0f, 1.0f}, {1.0f, 0.0f}},
+    //    {{ 0.5f, -0.5f, 0.0f}, {0.0f, 1.0f, 0.0f}, {0.0f, 0.0f}},
+    //    {{ 0.5f,  0.5f, 0.0f}, {0.0f, 0.0f, 1.0f}, {0.0f, 1.0f}},
+    //    {{-0.5f,  0.5f, 0.0f}, {1.0f, 0.0f, 0.0f}, {1.0f, 1.0f}},
+    //
+    //    {{-0.5f, -0.5f, -0.5f}, {1.0f, 1.0f, 1.0f}, {1.0f, 0.0f}},
+    //    {{ 0.5f, -0.5f, -0.5f}, {0.0f, 1.0f, 0.0f}, {0.0f, 0.0f}},
+    //    {{ 0.5f,  0.5f, -0.5f}, {0.0f, 0.0f, 1.0f}, {0.0f, 1.0f}},
+    //    {{-0.5f,  0.5f, -0.5f}, {1.0f, 0.0f, 0.0f}, {1.0f, 1.0f}}
+    //};
+    //
+    //const std::vector<uint16_t> m_Indices = {
+    //    0, 1, 2, 2, 3, 0,
+    //    4, 5, 6, 6, 7, 4,
+    //};
     // clang-format on
 };

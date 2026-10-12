@@ -18,9 +18,11 @@ target_compile_features(VulkanTutorial PRIVATE cxx_std_20)
 
 target_include_directories(VulkanTutorial PRIVATE
         "${CMAKE_CURRENT_SOURCE_DIR}/external/stb"
+        "${CMAKE_CURRENT_SOURCE_DIR}/external/tinyobjloader"
 )
 target_sources(VulkanTutorial PRIVATE
         "${CMAKE_CURRENT_SOURCE_DIR}/external/stb/stb_image.cpp"
+        "${CMAKE_CURRENT_SOURCE_DIR}/external/tinyobjloader/tiny_obj_loader.cpp"
 )
 
 set_target_properties(VulkanTutorial PROPERTIES

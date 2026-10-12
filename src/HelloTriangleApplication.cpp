@@ -5,16 +5,30 @@
 #include "HelloTriangleApplication.h"
 #include <glm/glm.hpp>
 #include <glm/gtc/matrix_transform.hpp>
+#define GLM_ENABLE_EXPERIMENTAL
+#include <glm/gtx/hash.hpp>
 #include <stb_image.h>
+#include <tiny_obj_loader.h>
 
 #include <algorithm>
 #include <cassert>
 #include <chrono>
 #include <cstring>
 #include <fstream>
+#include <unordered_map>
 #include <vector>
 #include <vector>
 
+namespace std
+{
+template<> struct hash<Vertex>
+{
+    size_t operator()(Vertex const& vertex) const
+    {
+        return ((hash<glm::vec3>()(vertex.Position) ^ (hash<glm::vec3>()(vertex.Color) << 1)) >> 1) ^ (hash<glm::vec2>()(vertex.TexCoord) << 1);
+    }
+};
+}
 
 std::vector<const char*> HelloTriangleApplication::GetRequiredInstanceExtensions() {
     uint32_t glfwExtensionCount = 0;
@@ -152,6 +166,7 @@ void HelloTriangleApplication::InitVulkan() {
     CreateTextureImage();
     CreateTextureImageView();
     CreateTextureSampler();
+    LoadModel();
     CreateVertexBuffer();
     CreateIndexBuffer();
     CreateUniformBuffers();
@@ -681,7 +696,8 @@ void HelloTriangleApplication::CreateGraphicsPipeline() {
 
     VK_CHECK(vkCreatePipelineLayout(m_Device, &pipelineLayoutInfo, nullptr, &m_PipelineLayout));
 
-    VkPipelineRenderingCreateInfo pipelineRenderingInfo = {.sType = VK_STRUCTURE_TYPE_PIPELINE_RENDERING_CREATE_INFO,
+    VkPipelineRenderingCreateInfo pipelineRenderingInfo = {
+        .sType = VK_STRUCTURE_TYPE_PIPELINE_RENDERING_CREATE_INFO,
         .colorAttachmentCount = 1,
         .pColorAttachmentFormats = &m_SwapchainSurfaceFormat.format,
         .depthAttachmentFormat = FindDepthFormat(),
@@ -737,7 +753,7 @@ void HelloTriangleApplication::CreateDepthResources() {
 }
 void HelloTriangleApplication::CreateTextureImage() {
     int texWidth, texHeight, texChannels;
-    stbi_uc* pixels = stbi_load("textures/texture.jpg", &texWidth, &texHeight, &texChannels, STBI_rgb_alpha);
+    stbi_uc* pixels = stbi_load(TEXTURE_PATH.c_str(), &texWidth, &texHeight, &texChannels, STBI_rgb_alpha);
     VkDeviceSize imageSize = texWidth * texHeight * 4;
 
     if (!pixels) {
@@ -796,6 +812,43 @@ void HelloTriangleApplication::CreateTextureSampler() {
     samplerInfo.compareOp = VK_COMPARE_OP_ALWAYS;
 
     VK_CHECK(vkCreateSampler(m_Device, &samplerInfo, nullptr, &m_TextureSampler));
+}
+void HelloTriangleApplication::LoadModel() {
+    tinyobj::attrib_t attrib;
+    std::vector<tinyobj::shape_t> shapes;
+    std::vector<tinyobj::material_t> materials;
+    std::string warn, err;
+
+    if (!tinyobj::LoadObj(&attrib, &shapes, &materials, &warn, &err, MODEL_PATH.c_str())) {
+        throw std::runtime_error(warn + err);
+    }
+
+    std::unordered_map<Vertex, uint32_t> uniqueVertices{};
+
+    for (const auto& shape : shapes) {
+        for (const auto& index : shape.mesh.indices) {
+            Vertex vertex{};
+
+            vertex.Position = {
+                attrib.vertices[3 * index.vertex_index + 0],
+                attrib.vertices[3 * index.vertex_index + 1],
+                attrib.vertices[3 * index.vertex_index + 2],
+            };
+            vertex.TexCoord = {
+                attrib.texcoords[2 * index.texcoord_index + 0],
+                1.0f - attrib.texcoords[2 * index.texcoord_index + 1],
+            };
+
+            vertex.Color = { 1.0f, 1.0f, 1.0f };
+
+            auto [it, inserted] = uniqueVertices.insert({ vertex, static_cast<uint32_t>(m_Vertices.size()) });
+
+            if (inserted) {
+                m_Vertices.push_back(vertex);
+            }
+            m_Indices.push_back(it->second);
+        }
+    }
 }
 void HelloTriangleApplication::CreateVertexBuffer() {
 
@@ -931,9 +984,10 @@ void HelloTriangleApplication::RecordCommandBuffer(uint32_t imageIndex) {
     };
     VK_CHECK(vkBeginCommandBuffer(commandBuffer, &beginInfo));
 
-    TransitionImageLayout(m_SwapchainImages[imageIndex], VK_IMAGE_LAYOUT_UNDEFINED, VK_IMAGE_LAYOUT_COLOR_ATTACHMENT_OPTIMAL, {},
-        VK_ACCESS_COLOR_ATTACHMENT_WRITE_BIT, VK_PIPELINE_STAGE_2_COLOR_ATTACHMENT_OUTPUT_BIT,
-        VK_PIPELINE_STAGE_2_COLOR_ATTACHMENT_OUTPUT_BIT, VK_IMAGE_ASPECT_COLOR_BIT);
+    TransitionImageLayout(m_SwapchainImages[imageIndex], VK_IMAGE_LAYOUT_UNDEFINED,
+        VK_IMAGE_LAYOUT_COLOR_ATTACHMENT_OPTIMAL, {}, VK_ACCESS_COLOR_ATTACHMENT_WRITE_BIT,
+        VK_PIPELINE_STAGE_2_COLOR_ATTACHMENT_OUTPUT_BIT, VK_PIPELINE_STAGE_2_COLOR_ATTACHMENT_OUTPUT_BIT,
+        VK_IMAGE_ASPECT_COLOR_BIT);
 
     // transition depth image to depth attachemnt optimal layout
     TransitionImageLayout(m_DepthImage, VK_IMAGE_LAYOUT_UNDEFINED, VK_IMAGE_LAYOUT_DEPTH_ATTACHMENT_OPTIMAL,
@@ -978,7 +1032,7 @@ void HelloTriangleApplication::RecordCommandBuffer(uint32_t imageIndex) {
 
     VkDeviceSize offset = 0;
     vkCmdBindVertexBuffers(commandBuffer, 0, 1, &m_VertexBuffer, &offset);
-    vkCmdBindIndexBuffer(commandBuffer, m_IndexBuffer, offset, VK_INDEX_TYPE_UINT16);
+    vkCmdBindIndexBuffer(commandBuffer, m_IndexBuffer, offset, VK_INDEX_TYPE_UINT32);
 
     vkCmdBindDescriptorSets(commandBuffer, VK_PIPELINE_BIND_POINT_GRAPHICS, m_PipelineLayout, 0, 1,
         &m_DescripotrSets[m_FrameIndex], 0, nullptr);
@@ -1005,9 +1059,10 @@ void HelloTriangleApplication::RecordCommandBuffer(uint32_t imageIndex) {
     vkCmdEndRendering(commandBuffer);
 
     // Transition image layou for presentation
-    TransitionImageLayout(m_SwapchainImages[imageIndex], VK_IMAGE_LAYOUT_COLOR_ATTACHMENT_OPTIMAL, VK_IMAGE_LAYOUT_PRESENT_SRC_KHR,
-        VK_ACCESS_2_COLOR_ATTACHMENT_WRITE_BIT, {}, VK_PIPELINE_STAGE_2_COLOR_ATTACHMENT_OUTPUT_BIT,
-        VK_PIPELINE_STAGE_2_BOTTOM_OF_PIPE_BIT, VK_IMAGE_ASPECT_COLOR_BIT);
+    TransitionImageLayout(m_SwapchainImages[imageIndex], VK_IMAGE_LAYOUT_COLOR_ATTACHMENT_OPTIMAL,
+        VK_IMAGE_LAYOUT_PRESENT_SRC_KHR, VK_ACCESS_2_COLOR_ATTACHMENT_WRITE_BIT, {},
+        VK_PIPELINE_STAGE_2_COLOR_ATTACHMENT_OUTPUT_BIT, VK_PIPELINE_STAGE_2_BOTTOM_OF_PIPE_BIT,
+        VK_IMAGE_ASPECT_COLOR_BIT);
 
     VK_CHECK(vkEndCommandBuffer(commandBuffer));
 }
