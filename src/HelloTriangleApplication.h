@@ -115,8 +115,8 @@ class HelloTriangleApplication {
     void TransitionImageLayout(const VkImage& image, VkImageLayout oldLayout, VkImageLayout newLayout,
         VkAccessFlags2 srcAccessMask, VkAccessFlags2 destAccessMask, VkPipelineStageFlags2 srcStageMask,
         VkPipelineStageFlags2 destStageMask, VkImageAspectFlags imageAspectFlags);
-    void TransitionImageLayout(
-        VkCommandBuffer commandBuffer, const VkImage& image, VkImageLayout oldLayout, VkImageLayout newLayout);
+    void TransitionImageLayout(VkCommandBuffer commandBuffer, const VkImage& image, VkImageLayout oldLayout,
+        VkImageLayout newLayout, uint32_t mipLevels);
     void CreateSyncObjects();
     uint32_t FindMemoryType(uint32_t typeFilter, VkMemoryPropertyFlags properties);
 
@@ -126,10 +126,13 @@ class HelloTriangleApplication {
     void CopyBufferToImage(
         VkCommandBuffer& commandBuffer, const VkBuffer& buffer, VkImage& image, uint32_t width, uint32_t height);
     void UpdateUniformBuffer(uint32_t currentImage);
-    VkImageView CreateImageView(VkImage const& image, VkFormat format, VkImageAspectFlags aspectFlags);
+    VkImageView CreateImageView(
+        VkImage const& image, VkFormat format, VkImageAspectFlags aspectFlags, uint32_t mipLevels);
     VkFormat FindSupportedFormat(
         const std::vector<VkFormat>& candidates, VkImageTiling tiling, VkFormatFeatureFlags features);
     VkFormat FindDepthFormat();
+    void GenerateMipmaps(
+        VkCommandBuffer& commandBuffer, VkImage& image, VkFormat format, int32_t texWidth, int32_t texHeight, uint32_t mipLevels);
 
     void DrawFrame();
 
@@ -138,7 +141,7 @@ class HelloTriangleApplication {
     // Helpers
     static std::vector<char> ReadFile(const std::string& filename);
     [[nodiscard]] VkShaderModule CreateShaderModule(const std::vector<char>& code) const;
-    std::pair<VkImage, VkDeviceMemory> CreateImage(uint32_t width, uint32_t height, VkFormat format,
+    std::pair<VkImage, VkDeviceMemory> CreateImage(uint32_t width, uint32_t height, uint32_t mipLevels, VkFormat format,
         VkImageTiling tiling, VkImageUsageFlags usage, VkMemoryPropertyFlags properties);
     VkCommandBuffer BeginSingleTimeCommands();
     void EndSingleTimeCommands(VkCommandBuffer commandBuffer);
@@ -195,6 +198,7 @@ class HelloTriangleApplication {
     std::vector<VkBuffer> m_UniformBuffers;
     std::vector<VkDeviceMemory> m_UniformBuffersMemory;
     std::vector<void*> m_UniformBuffersMapped;
+    uint32_t m_MipLevels = 0;
     VkImage m_TextureImage = VK_NULL_HANDLE;
     VkDeviceMemory m_TextureImageMemory = VK_NULL_HANDLE;
     VkImageView m_TextureImageView = VK_NULL_HANDLE;
