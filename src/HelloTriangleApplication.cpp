@@ -68,15 +68,15 @@ VkShaderModule HelloTriangleApplication::CreateShaderModule(const std::vector<ch
     return shaderModule;
 }
 std::pair<VkImage, VkDeviceMemory> HelloTriangleApplication::CreateImage(uint32_t width, uint32_t height,
-    uint32_t mipLevels, VkFormat format, VkImageTiling tiling, VkImageUsageFlags usage,
-    VkMemoryPropertyFlags properties) {
+    uint32_t mipLevels, VkSampleCountFlagBits numSamples, VkFormat format, VkImageTiling tiling,
+    VkImageUsageFlags usage, VkMemoryPropertyFlags properties) {
     VkImageCreateInfo createInfo = {.sType = VK_STRUCTURE_TYPE_IMAGE_CREATE_INFO,
         .imageType = VK_IMAGE_TYPE_2D,
         .format = format,
         .extent = {width, height, 1},
         .mipLevels = mipLevels,
         .arrayLayers = 1,
-        .samples = VK_SAMPLE_COUNT_1_BIT,
+        .samples = numSamples,
         .tiling = tiling,
         .usage = usage,
         .sharingMode = VK_SHARING_MODE_EXCLUSIVE};
@@ -161,6 +161,7 @@ void HelloTriangleApplication::InitVulkan() {
     CreateDescriptorSetLayout();
     CreateGraphicsPipeline();
     CreateCommandPool();
+    CreateColorResources();
     CreateDepthResources();
     CreateTextureImage();
     CreateTextureImageView();
@@ -329,6 +330,7 @@ void HelloTriangleApplication::PickPhysicalDevice() {
                 break;
         }
     }
+    m_MsaaSamples = GetMaxUsableSampleCount();
     // Just for info...
     VkPhysicalDeviceProperties props;
     vkGetPhysicalDeviceProperties(m_PhysicalDevice, &props);
@@ -560,12 +562,18 @@ void HelloTriangleApplication::RecreateSwapchain() {
 
     CreateSwapchain();
     CreateImageViews();
+    CreateColorResources();
     CreateDepthResources();
 }
 void HelloTriangleApplication::CleanupSwapchain() {
     vkDestroyImageView(m_Device, m_DepthImageView, nullptr);
     vkDestroyImage(m_Device, m_DepthImage, nullptr);
     vkFreeMemory(m_Device, m_DepthImageMemory, nullptr);
+
+    vkDestroyImageView(m_Device, m_ColorImageView, nullptr);
+    vkDestroyImage(m_Device, m_ColorImage, nullptr);
+    vkFreeMemory(m_Device, m_ColorImageMemory, nullptr);
+
     vkDestroySwapchainKHR(m_Device, m_Swapchain, nullptr);
     for (auto& imageView : m_SwapchainImageViews) {
         vkDestroyImageView(m_Device, imageView, nullptr);
@@ -669,7 +677,7 @@ void HelloTriangleApplication::CreateGraphicsPipeline() {
 
     VkPipelineMultisampleStateCreateInfo multisampling = {
         .sType = VK_STRUCTURE_TYPE_PIPELINE_MULTISAMPLE_STATE_CREATE_INFO,
-        .rasterizationSamples = VK_SAMPLE_COUNT_1_BIT,
+        .rasterizationSamples = m_MsaaSamples,
         .sampleShadingEnable = VK_FALSE,
     };
 
@@ -742,11 +750,23 @@ void HelloTriangleApplication::CreateCommandPool() {
 
     VK_CHECK(vkCreateCommandPool(m_Device, &poolInfo, nullptr, &m_CommandPool));
 }
+void HelloTriangleApplication::CreateColorResources() {
+    VkFormat colorFormat = m_SwapchainSurfaceFormat.format;
+
+    // we are using 1 mip level since this is enforced by Vulkan spec in case of images with more than one
+    // sample per pixel. Also this color buffer doesn't need mip levels since it's not used as a texture
+    std::tie(m_ColorImage, m_ColorImageMemory) =
+        CreateImage(m_SwapchainExtnet.width, m_SwapchainExtnet.height, 1, m_MsaaSamples, colorFormat,
+            VK_IMAGE_TILING_OPTIMAL, VK_IMAGE_USAGE_TRANSIENT_ATTACHMENT_BIT | VK_IMAGE_USAGE_COLOR_ATTACHMENT_BIT,
+            VK_MEMORY_PROPERTY_DEVICE_LOCAL_BIT);
+
+    m_ColorImageView = CreateImageView(m_ColorImage, colorFormat, VK_IMAGE_ASPECT_COLOR_BIT, 1);
+}
 void HelloTriangleApplication::CreateDepthResources() {
     VkFormat depthFormat = FindDepthFormat();
 
     std::tie(m_DepthImage, m_DepthImageMemory) =
-        CreateImage(m_SwapchainExtnet.width, m_SwapchainExtnet.height, 1, depthFormat,
+        CreateImage(m_SwapchainExtnet.width, m_SwapchainExtnet.height, 1, m_MsaaSamples, depthFormat,
             VK_IMAGE_TILING_OPTIMAL, VK_IMAGE_USAGE_DEPTH_STENCIL_ATTACHMENT_BIT, VK_MEMORY_PROPERTY_DEVICE_LOCAL_BIT);
     m_DepthImageView = CreateImageView(m_DepthImage, depthFormat, VK_IMAGE_ASPECT_DEPTH_BIT, 1);
 }
@@ -771,10 +791,10 @@ void HelloTriangleApplication::CreateTextureImage() {
 
     stbi_image_free(pixels);
 
-    std::tie(m_TextureImage, m_TextureImageMemory) =
-        CreateImage(texWidth, texHeight, m_MipLevels, VK_FORMAT_R8G8B8A8_SRGB, VK_IMAGE_TILING_OPTIMAL,
-            VK_IMAGE_USAGE_TRANSFER_SRC_BIT | VK_IMAGE_USAGE_TRANSFER_DST_BIT | VK_IMAGE_USAGE_SAMPLED_BIT,
-            VK_MEMORY_PROPERTY_DEVICE_LOCAL_BIT);
+    std::tie(m_TextureImage, m_TextureImageMemory) = CreateImage(texWidth, texHeight, m_MipLevels,
+        VK_SAMPLE_COUNT_1_BIT, VK_FORMAT_R8G8B8A8_SRGB, VK_IMAGE_TILING_OPTIMAL,
+        VK_IMAGE_USAGE_TRANSFER_SRC_BIT | VK_IMAGE_USAGE_TRANSFER_DST_BIT | VK_IMAGE_USAGE_SAMPLED_BIT,
+        VK_MEMORY_PROPERTY_DEVICE_LOCAL_BIT);
 
     VkCommandBuffer commandBuffer = BeginSingleTimeCommands();
     TransitionImageLayout(
@@ -799,8 +819,7 @@ void HelloTriangleApplication::CreateTextureSampler() {
     VkPhysicalDeviceProperties properties;
     vkGetPhysicalDeviceProperties(m_PhysicalDevice, &properties);
 
-    VkSamplerCreateInfo samplerInfo = {
-        .sType = VK_STRUCTURE_TYPE_SAMPLER_CREATE_INFO,
+    VkSamplerCreateInfo samplerInfo = {.sType = VK_STRUCTURE_TYPE_SAMPLER_CREATE_INFO,
         .magFilter = VK_FILTER_LINEAR,
         .minFilter = VK_FILTER_LINEAR,
         .mipmapMode = VK_SAMPLER_MIPMAP_MODE_LINEAR,
@@ -812,8 +831,7 @@ void HelloTriangleApplication::CreateTextureSampler() {
         .compareEnable = VK_FALSE,
         .compareOp = VK_COMPARE_OP_ALWAYS,
         .minLod = 0.0f,
-        .maxLod = VK_LOD_CLAMP_NONE
-    };
+        .maxLod = VK_LOD_CLAMP_NONE};
     samplerInfo.borderColor = VK_BORDER_COLOR_INT_OPAQUE_BLACK;
     samplerInfo.unnormalizedCoordinates = VK_FALSE;
     samplerInfo.compareEnable = VK_FALSE;
@@ -997,6 +1015,11 @@ void HelloTriangleApplication::RecordCommandBuffer(uint32_t imageIndex) {
         VK_PIPELINE_STAGE_2_COLOR_ATTACHMENT_OUTPUT_BIT, VK_PIPELINE_STAGE_2_COLOR_ATTACHMENT_OUTPUT_BIT,
         VK_IMAGE_ASPECT_COLOR_BIT);
 
+    // transition the multisampled color image to VK_IMAGE_LAYOUT_COLOR_ATTACHMENT_OPTIMAL
+    TransitionImageLayout(m_ColorImage, VK_IMAGE_LAYOUT_UNDEFINED, VK_IMAGE_LAYOUT_COLOR_ATTACHMENT_OPTIMAL,
+        VK_ACCESS_2_COLOR_ATTACHMENT_WRITE_BIT, VK_ACCESS_2_COLOR_ATTACHMENT_WRITE_BIT, VK_PIPELINE_STAGE_2_COLOR_ATTACHMENT_OUTPUT_BIT,
+        VK_PIPELINE_STAGE_2_COLOR_ATTACHMENT_OUTPUT_BIT, VK_IMAGE_ASPECT_COLOR_BIT);
+
     // transition depth image to depth attachemnt optimal layout
     TransitionImageLayout(m_DepthImage, VK_IMAGE_LAYOUT_UNDEFINED, VK_IMAGE_LAYOUT_DEPTH_ATTACHMENT_OPTIMAL,
         VK_ACCESS_2_DEPTH_STENCIL_ATTACHMENT_WRITE_BIT, VK_ACCESS_2_DEPTH_STENCIL_ATTACHMENT_WRITE_BIT,
@@ -1004,13 +1027,26 @@ void HelloTriangleApplication::RecordCommandBuffer(uint32_t imageIndex) {
         VK_PIPELINE_STAGE_2_EARLY_FRAGMENT_TESTS_BIT | VK_PIPELINE_STAGE_2_LATE_FRAGMENT_TESTS_BIT,
         VK_IMAGE_ASPECT_DEPTH_BIT);
 
-    VkClearColorValue clearColor = {0.0f, 0.0f, 0.0f, 1.0f};
+
+    VkClearValue clearColor = {0.1f, 0.1f, 0.1f, 1.0f};
     VkClearValue clearDepth = {.depthStencil = {1.0f, 0}};
 
     VkRenderingAttachmentInfo attachmentInfo = {
         .sType = VK_STRUCTURE_TYPE_RENDERING_ATTACHMENT_INFO,
         .imageView = m_SwapchainImageViews[imageIndex],
         .imageLayout = VK_IMAGE_LAYOUT_COLOR_ATTACHMENT_OPTIMAL,
+        .loadOp = VK_ATTACHMENT_LOAD_OP_CLEAR,
+        .storeOp = VK_ATTACHMENT_STORE_OP_STORE,
+        .clearValue = clearColor,
+    };
+
+    VkRenderingAttachmentInfo colorAttachment = {
+        .sType = VK_STRUCTURE_TYPE_RENDERING_ATTACHMENT_INFO,
+        .imageView = m_ColorImageView,
+        .imageLayout = VK_IMAGE_LAYOUT_COLOR_ATTACHMENT_OPTIMAL,
+        .resolveMode = VK_RESOLVE_MODE_AVERAGE_BIT,
+        .resolveImageView = m_SwapchainImageViews[imageIndex],
+        .resolveImageLayout = VK_IMAGE_LAYOUT_COLOR_ATTACHMENT_OPTIMAL,
         .loadOp = VK_ATTACHMENT_LOAD_OP_CLEAR,
         .storeOp = VK_ATTACHMENT_STORE_OP_STORE,
         .clearValue = clearColor,
@@ -1030,7 +1066,7 @@ void HelloTriangleApplication::RecordCommandBuffer(uint32_t imageIndex) {
         .renderArea = {.offset = {0, 0}, .extent = m_SwapchainExtnet},
         .layerCount = 1,
         .colorAttachmentCount = 1,
-        .pColorAttachments = &attachmentInfo,
+        .pColorAttachments = &colorAttachment,
         .pDepthAttachment = &depthAttachmentInfo,
     };
 
@@ -1249,7 +1285,7 @@ void HelloTriangleApplication::UpdateUniformBuffer(uint32_t currentImage) {
     float time = std::chrono::duration<float, std::chrono::seconds::period>(currentTime - startTime).count();
 
     UniformBufferObject ubo{};
-    ubo.Model = glm::rotate(glm::mat4(1.0f), time * glm::radians(90.0f), glm::vec3(0.0f, 0.0f, 1.0f));
+    ubo.Model = glm::rotate(glm::mat4(1.0f), /*time * */ glm::radians(0.0f), glm::vec3(0.0f, 0.0f, 1.0f));
     ubo.View = glm::lookAt(glm::vec3(2.0f, 2.0f, 2.0f), glm::vec3(0.0f, 0.0f, 0.0f), glm::vec3(0.0f, 0.0f, 1.0f));
     ubo.Proj = glm::perspective(glm::radians(45.0f),
         static_cast<float>(m_SwapchainExtnet.width) / static_cast<float>(m_SwapchainExtnet.height), 0.1f, 10.0f);
@@ -1361,6 +1397,34 @@ void HelloTriangleApplication::GenerateMipmaps(VkCommandBuffer& commandBuffer, V
 
     vkCmdPipelineBarrier(commandBuffer, VK_PIPELINE_STAGE_TRANSFER_BIT, VK_PIPELINE_STAGE_FRAGMENT_SHADER_BIT, 0, 0,
         nullptr, 0, nullptr, 1, &barrier);
+}
+VkSampleCountFlagBits HelloTriangleApplication::GetMaxUsableSampleCount() {
+    VkPhysicalDeviceProperties properties;
+    vkGetPhysicalDeviceProperties(m_PhysicalDevice, &properties);
+
+    VkSampleCountFlags counts =
+        properties.limits.framebufferColorSampleCounts & properties.limits.framebufferDepthSampleCounts;
+
+    if (counts & VK_SAMPLE_COUNT_64_BIT) {
+        return VK_SAMPLE_COUNT_64_BIT;
+    }
+    if (counts & VK_SAMPLE_COUNT_32_BIT) {
+        return VK_SAMPLE_COUNT_32_BIT;
+    }
+    if (counts & VK_SAMPLE_COUNT_16_BIT) {
+        return VK_SAMPLE_COUNT_16_BIT;
+    }
+    if (counts & VK_SAMPLE_COUNT_8_BIT) {
+        return VK_SAMPLE_COUNT_8_BIT;
+    }
+    if (counts & VK_SAMPLE_COUNT_4_BIT) {
+        return VK_SAMPLE_COUNT_4_BIT;
+    }
+    if (counts & VK_SAMPLE_COUNT_2_BIT) {
+        return VK_SAMPLE_COUNT_2_BIT;
+    }
+
+    return VK_SAMPLE_COUNT_1_BIT;
 }
 void HelloTriangleApplication::DrawFrame() {
     VkResult fenceResult = vkWaitForFences(m_Device, 1, &m_InFlightFences[m_FrameIndex], VK_TRUE, UINT64_MAX);

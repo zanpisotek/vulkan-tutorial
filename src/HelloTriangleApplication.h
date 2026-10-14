@@ -100,6 +100,7 @@ class HelloTriangleApplication {
     void CreateDescriptorSetLayout();
     void CreateGraphicsPipeline();
     void CreateCommandPool();
+    void CreateColorResources();
     void CreateDepthResources();
     void CreateTextureImage();
     void CreateTextureImageView();
@@ -131,8 +132,9 @@ class HelloTriangleApplication {
     VkFormat FindSupportedFormat(
         const std::vector<VkFormat>& candidates, VkImageTiling tiling, VkFormatFeatureFlags features);
     VkFormat FindDepthFormat();
-    void GenerateMipmaps(
-        VkCommandBuffer& commandBuffer, VkImage& image, VkFormat format, int32_t texWidth, int32_t texHeight, uint32_t mipLevels);
+    void GenerateMipmaps(VkCommandBuffer& commandBuffer, VkImage& image, VkFormat format, int32_t texWidth,
+        int32_t texHeight, uint32_t mipLevels);
+    VkSampleCountFlagBits GetMaxUsableSampleCount();
 
     void DrawFrame();
 
@@ -141,8 +143,9 @@ class HelloTriangleApplication {
     // Helpers
     static std::vector<char> ReadFile(const std::string& filename);
     [[nodiscard]] VkShaderModule CreateShaderModule(const std::vector<char>& code) const;
-    std::pair<VkImage, VkDeviceMemory> CreateImage(uint32_t width, uint32_t height, uint32_t mipLevels, VkFormat format,
-        VkImageTiling tiling, VkImageUsageFlags usage, VkMemoryPropertyFlags properties);
+    std::pair<VkImage, VkDeviceMemory> CreateImage(uint32_t width, uint32_t height, uint32_t mipLevels,
+        VkSampleCountFlagBits numSamples, VkFormat format, VkImageTiling tiling, VkImageUsageFlags usage,
+        VkMemoryPropertyFlags properties);
     VkCommandBuffer BeginSingleTimeCommands();
     void EndSingleTimeCommands(VkCommandBuffer commandBuffer);
 
@@ -206,6 +209,12 @@ class HelloTriangleApplication {
     VkImage m_DepthImage = VK_NULL_HANDLE;
     VkDeviceMemory m_DepthImageMemory = VK_NULL_HANDLE;
     VkImageView m_DepthImageView = VK_NULL_HANDLE;
+
+    VkSampleCountFlagBits m_MsaaSamples = VK_SAMPLE_COUNT_1_BIT;
+    VkImage m_ColorImage = nullptr;
+    VkDeviceMemory m_ColorImageMemory = nullptr;
+    VkImageView m_ColorImageView = nullptr;
+
 
     uint32_t m_FrameIndex = 0;
     bool m_FramebufferResized = false;
