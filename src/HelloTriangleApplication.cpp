@@ -169,6 +169,7 @@ void HelloTriangleApplication::InitVulkan() {
     LoadModel();
     CreateVertexBuffer();
     CreateIndexBuffer();
+    SetupGameObjects();
     CreateUniformBuffers();
     CreateDescriptorPool();
     CreateDescriptorSets();
@@ -193,12 +194,15 @@ void HelloTriangleApplication::Cleanup() {
     vkFreeMemory(m_Device, m_TextureImageMemory, nullptr);
     vkDestroyDescriptorPool(m_Device, m_DescriptorPool, nullptr);
     vkDestroyDescriptorSetLayout(m_Device, m_DescriptorSetLayout, nullptr);
-    for (auto& uboBuffer : m_UniformBuffers) {
-        vkDestroyBuffer(m_Device, uboBuffer, nullptr);
+
+    for (const auto& gameObject : GameObjects) {
+        for (size_t i = 0; i < gameObject.UniformBuffers.size(); ++i) {
+            vkUnmapMemory(m_Device, gameObject.UniformBufferMemory[i]);
+            vkDestroyBuffer(m_Device, gameObject.UniformBuffers[i], nullptr);
+            vkFreeMemory(m_Device, gameObject.UniformBufferMemory[i], nullptr);
+        }
     }
-    for (auto& uboMem : m_UniformBuffersMemory) {
-        vkFreeMemory(m_Device, uboMem, nullptr);
-    }
+
     for (size_t i = 0; i < MAX_FRAMES_IN_FLIGHT; ++i) {
         vkDestroyFence(m_Device, m_InFlightFences[i], nullptr);
         vkDestroySemaphore(m_Device, m_PresentCompleteSemaphores[i], nullptr);
@@ -219,6 +223,22 @@ void HelloTriangleApplication::Cleanup() {
     vkDestroyDebugUtilsMessengerEXT(m_Instance, m_DebugMessenger, nullptr);
     vkDestroyInstance(m_Instance, nullptr);
     glfwTerminate();
+}
+void HelloTriangleApplication::SetupGameObjects() {
+    // Object 1 - Center
+    GameObjects[0].Position = {0.0f, 0.0f, 0.0f};
+    GameObjects[0].Rotation = {0.0f, 0.0f, 0.0f};
+    GameObjects[0].Scale = {1.0f, 1.0f, 1.0f};
+
+    // Object 2 - Left
+    GameObjects[1].Position = {-2.0f, 0.0f, -1.0f};
+    GameObjects[1].Rotation = {0.0f, glm::radians(45.0f), 0.0f};
+    GameObjects[1].Scale = {0.75f, 0.75f, 0.75f};
+
+    // Object 3 - Right
+    GameObjects[2].Position = {2.0f, 0.0f, -1.0f};
+    GameObjects[2].Rotation = {0.0f, glm::radians(-45.0f), 0.0f};
+    GameObjects[2].Scale = {0.75f, 0.75f, 0.75f};
 }
 
 void HelloTriangleApplication::CreateInstance() {
@@ -669,7 +689,7 @@ void HelloTriangleApplication::CreateGraphicsPipeline() {
         .depthClampEnable = VK_FALSE,
         .rasterizerDiscardEnable = VK_FALSE,
         .polygonMode = VK_POLYGON_MODE_FILL,
-        .cullMode = VK_CULL_MODE_BACK_BIT,
+        .cullMode = VK_CULL_MODE_NONE,
         .frontFace = VK_FRONT_FACE_COUNTER_CLOCKWISE, // we flipped y
         .depthBiasEnable = VK_FALSE,
         .lineWidth = 1.0f,
@@ -917,29 +937,40 @@ void HelloTriangleApplication::CreateIndexBuffer() {
     vkFreeMemory(m_Device, stagingBufferMemory, nullptr);
 }
 void HelloTriangleApplication::CreateUniformBuffers() {
-    m_UniformBuffersMapped.resize(MAX_FRAMES_IN_FLIGHT);
+    const VkDeviceSize bufferSize = sizeof(UniformBufferObject);
 
-    for (size_t i = 0; i < MAX_FRAMES_IN_FLIGHT; ++i) {
-        VkDeviceSize bufferSize = sizeof(UniformBufferObject);
-        auto [buffer, bufferMem] = CreateBuffer(bufferSize, VK_BUFFER_USAGE_UNIFORM_BUFFER_BIT,
-            VK_MEMORY_PROPERTY_HOST_VISIBLE_BIT | VK_MEMORY_PROPERTY_HOST_COHERENT_BIT);
-        m_UniformBuffers.push_back(buffer);
-        m_UniformBuffersMemory.push_back(bufferMem);
-        void* data;
-        VK_CHECK(vkMapMemory(m_Device, bufferMem, 0, bufferSize, 0, &m_UniformBuffersMapped[i]));
+    for (auto& gameObject : GameObjects) {
+        gameObject.UniformBuffers.resize(MAX_FRAMES_IN_FLIGHT);
+        gameObject.UniformBufferMemory.resize(MAX_FRAMES_IN_FLIGHT);
+        gameObject.UniformBuffersMapped.resize(MAX_FRAMES_IN_FLIGHT);
+
+        for (size_t i = 0; i < MAX_FRAMES_IN_FLIGHT; ++i) {
+            auto [buffer, memory] = CreateBuffer(
+                bufferSize,
+                VK_BUFFER_USAGE_UNIFORM_BUFFER_BIT,
+                VK_MEMORY_PROPERTY_HOST_VISIBLE_BIT |
+                    VK_MEMORY_PROPERTY_HOST_COHERENT_BIT);
+
+            gameObject.UniformBuffers[i] = buffer;
+            gameObject.UniformBufferMemory[i] = memory;
+
+            VK_CHECK(vkMapMemory(
+                m_Device, memory, 0, bufferSize, 0,
+                &gameObject.UniformBuffersMapped[i]));
+        }
     }
 }
 void HelloTriangleApplication::CreateDescriptorPool() {
     std::array<VkDescriptorPoolSize, 2> poolSize{};
     poolSize[0].type = VK_DESCRIPTOR_TYPE_UNIFORM_BUFFER;
-    poolSize[0].descriptorCount = MAX_FRAMES_IN_FLIGHT;
+    poolSize[0].descriptorCount = MAX_OBJECTS * MAX_FRAMES_IN_FLIGHT;
     poolSize[1].type = VK_DESCRIPTOR_TYPE_COMBINED_IMAGE_SAMPLER;
-    poolSize[1].descriptorCount = MAX_FRAMES_IN_FLIGHT;
+    poolSize[1].descriptorCount = MAX_OBJECTS * MAX_FRAMES_IN_FLIGHT;
 
     VkDescriptorPoolCreateInfo poolInfo = {
         .sType = VK_STRUCTURE_TYPE_DESCRIPTOR_POOL_CREATE_INFO,
         .flags = VK_DESCRIPTOR_POOL_CREATE_FREE_DESCRIPTOR_SET_BIT,
-        .maxSets = MAX_FRAMES_IN_FLIGHT,
+        .maxSets = MAX_OBJECTS * MAX_FRAMES_IN_FLIGHT,
         .poolSizeCount = static_cast<uint32_t>(poolSize.size()),
         .pPoolSizes = poolSize.data(),
     };
@@ -947,50 +978,53 @@ void HelloTriangleApplication::CreateDescriptorPool() {
     VK_CHECK(vkCreateDescriptorPool(m_Device, &poolInfo, nullptr, &m_DescriptorPool));
 }
 void HelloTriangleApplication::CreateDescriptorSets() {
-    std::vector<VkDescriptorSetLayout> layouts(MAX_FRAMES_IN_FLIGHT, m_DescriptorSetLayout);
-    m_DescripotrSets.resize(layouts.size());
 
-    VkDescriptorSetAllocateInfo allocInfo = {
-        .sType = VK_STRUCTURE_TYPE_DESCRIPTOR_SET_ALLOCATE_INFO,
-        .descriptorPool = m_DescriptorPool,
-        .descriptorSetCount = static_cast<uint32_t>(layouts.size()),
-        .pSetLayouts = layouts.data(),
-    };
+    for (auto& gameObject : GameObjects) {
+        std::vector<VkDescriptorSetLayout> layouts(MAX_FRAMES_IN_FLIGHT, m_DescriptorSetLayout);
+        gameObject.DescriptorSets.resize(layouts.size());
 
-    VK_CHECK(vkAllocateDescriptorSets(m_Device, &allocInfo, m_DescripotrSets.data()));
-
-    for (size_t i = 0; i < MAX_FRAMES_IN_FLIGHT; ++i) {
-        VkDescriptorBufferInfo bufferInfo = {
-            .buffer = m_UniformBuffers[i],
-            .offset = 0,
-            .range = sizeof(UniformBufferObject),
+        VkDescriptorSetAllocateInfo allocInfo = {
+            .sType = VK_STRUCTURE_TYPE_DESCRIPTOR_SET_ALLOCATE_INFO,
+            .descriptorPool = m_DescriptorPool,
+            .descriptorSetCount = static_cast<uint32_t>(layouts.size()),
+            .pSetLayouts = layouts.data(),
         };
 
-        VkDescriptorImageInfo imageInfo = {
-            .sampler = m_TextureSampler,
-            .imageView = m_TextureImageView,
-            .imageLayout = VK_IMAGE_LAYOUT_SHADER_READ_ONLY_OPTIMAL,
-        };
+        VK_CHECK(vkAllocateDescriptorSets(m_Device, &allocInfo, gameObject.DescriptorSets.data()));
 
-        std::array<VkWriteDescriptorSet, 2> descriptorWrites{};
-        descriptorWrites[0].sType = VK_STRUCTURE_TYPE_WRITE_DESCRIPTOR_SET;
-        descriptorWrites[0].dstSet = m_DescripotrSets[i];
-        descriptorWrites[0].dstBinding = 0;
-        descriptorWrites[0].dstArrayElement = 0;
-        descriptorWrites[0].descriptorCount = 1;
-        descriptorWrites[0].descriptorType = VK_DESCRIPTOR_TYPE_UNIFORM_BUFFER;
-        descriptorWrites[0].pBufferInfo = &bufferInfo;
+        for (size_t i = 0; i < MAX_FRAMES_IN_FLIGHT; ++i) {
+            VkDescriptorBufferInfo bufferInfo = {
+                .buffer = gameObject.UniformBuffers[i],
+                .offset = 0,
+                .range = sizeof(UniformBufferObject),
+            };
 
-        descriptorWrites[1].sType = VK_STRUCTURE_TYPE_WRITE_DESCRIPTOR_SET;
-        descriptorWrites[1].dstSet = m_DescripotrSets[i];
-        descriptorWrites[1].dstBinding = 1;
-        descriptorWrites[1].dstArrayElement = 0;
-        descriptorWrites[1].descriptorCount = 1;
-        descriptorWrites[1].descriptorType = VK_DESCRIPTOR_TYPE_COMBINED_IMAGE_SAMPLER;
-        descriptorWrites[1].pImageInfo = &imageInfo;
+            VkDescriptorImageInfo imageInfo = {
+                .sampler = m_TextureSampler,
+                .imageView = m_TextureImageView,
+                .imageLayout = VK_IMAGE_LAYOUT_SHADER_READ_ONLY_OPTIMAL,
+            };
 
-        vkUpdateDescriptorSets(
-            m_Device, static_cast<uint32_t>(descriptorWrites.size()), descriptorWrites.data(), 0, nullptr);
+            std::array<VkWriteDescriptorSet, 2> descriptorWrites{};
+            descriptorWrites[0].sType = VK_STRUCTURE_TYPE_WRITE_DESCRIPTOR_SET;
+            descriptorWrites[0].dstSet = gameObject.DescriptorSets[i];
+            descriptorWrites[0].dstBinding = 0;
+            descriptorWrites[0].dstArrayElement = 0;
+            descriptorWrites[0].descriptorCount = 1;
+            descriptorWrites[0].descriptorType = VK_DESCRIPTOR_TYPE_UNIFORM_BUFFER;
+            descriptorWrites[0].pBufferInfo = &bufferInfo;
+
+            descriptorWrites[1].sType = VK_STRUCTURE_TYPE_WRITE_DESCRIPTOR_SET;
+            descriptorWrites[1].dstSet = gameObject.DescriptorSets[i];
+            descriptorWrites[1].dstBinding = 1;
+            descriptorWrites[1].dstArrayElement = 0;
+            descriptorWrites[1].descriptorCount = 1;
+            descriptorWrites[1].descriptorType = VK_DESCRIPTOR_TYPE_COMBINED_IMAGE_SAMPLER;
+            descriptorWrites[1].pImageInfo = &imageInfo;
+
+            vkUpdateDescriptorSets(
+                m_Device, static_cast<uint32_t>(descriptorWrites.size()), descriptorWrites.data(), 0, nullptr);
+        }
     }
 }
 void HelloTriangleApplication::CreateCommandBuffers() {
@@ -1018,8 +1052,9 @@ void HelloTriangleApplication::RecordCommandBuffer(uint32_t imageIndex) {
 
     // transition the multisampled color image to VK_IMAGE_LAYOUT_COLOR_ATTACHMENT_OPTIMAL
     TransitionImageLayout(m_ColorImage, VK_IMAGE_LAYOUT_UNDEFINED, VK_IMAGE_LAYOUT_COLOR_ATTACHMENT_OPTIMAL,
-        VK_ACCESS_2_COLOR_ATTACHMENT_WRITE_BIT, VK_ACCESS_2_COLOR_ATTACHMENT_WRITE_BIT, VK_PIPELINE_STAGE_2_COLOR_ATTACHMENT_OUTPUT_BIT,
-        VK_PIPELINE_STAGE_2_COLOR_ATTACHMENT_OUTPUT_BIT, VK_IMAGE_ASPECT_COLOR_BIT);
+        VK_ACCESS_2_COLOR_ATTACHMENT_WRITE_BIT, VK_ACCESS_2_COLOR_ATTACHMENT_WRITE_BIT,
+        VK_PIPELINE_STAGE_2_COLOR_ATTACHMENT_OUTPUT_BIT, VK_PIPELINE_STAGE_2_COLOR_ATTACHMENT_OUTPUT_BIT,
+        VK_IMAGE_ASPECT_COLOR_BIT);
 
     // transition depth image to depth attachemnt optimal layout
     TransitionImageLayout(m_DepthImage, VK_IMAGE_LAYOUT_UNDEFINED, VK_IMAGE_LAYOUT_DEPTH_ATTACHMENT_OPTIMAL,
@@ -1079,27 +1114,29 @@ void HelloTriangleApplication::RecordCommandBuffer(uint32_t imageIndex) {
     vkCmdBindVertexBuffers(commandBuffer, 0, 1, &m_VertexBuffer, &offset);
     vkCmdBindIndexBuffer(commandBuffer, m_IndexBuffer, offset, VK_INDEX_TYPE_UINT32);
 
-    vkCmdBindDescriptorSets(commandBuffer, VK_PIPELINE_BIND_POINT_GRAPHICS, m_PipelineLayout, 0, 1,
-        &m_DescripotrSets[m_FrameIndex], 0, nullptr);
+    for (const auto& gameObject : GameObjects) {
+        vkCmdBindDescriptorSets(commandBuffer, VK_PIPELINE_BIND_POINT_GRAPHICS, m_PipelineLayout, 0,
+            1, &gameObject.DescriptorSets[m_FrameIndex], 0, nullptr);
 
+        VkViewport viewport{.x = 0.0f,
+            .y = static_cast<float>(m_SwapchainExtnet.height),
+            .width = static_cast<float>(m_SwapchainExtnet.width),
+            .height = -static_cast<float>(
+                m_SwapchainExtnet.height), // flipped so the image is not upside down (can be done differently probs)
+            .minDepth = 0.0f,
+            .maxDepth = 1.0f};
 
-    VkViewport viewport{.x = 0.0f,
-        .y = static_cast<float>(m_SwapchainExtnet.height),
-        .width = static_cast<float>(m_SwapchainExtnet.width),
-        .height = -static_cast<float>(
-            m_SwapchainExtnet.height), // flipped so the image is not upside down (can be done differently probs)
-        .minDepth = 0.0f,
-        .maxDepth = 1.0f};
+        vkCmdSetViewport(commandBuffer, 0, 1, &viewport);
+        VkRect2D scissor{
+            .offset = {0, 0},
+            .extent = m_SwapchainExtnet,
+        };
+        vkCmdSetScissor(commandBuffer, 0, 1, &scissor);
 
-    vkCmdSetViewport(commandBuffer, 0, 1, &viewport);
-    VkRect2D scissor{
-        .offset = {0, 0},
-        .extent = m_SwapchainExtnet,
-    };
-    vkCmdSetScissor(commandBuffer, 0, 1, &scissor);
+        // vkCmdDraw(commandBuffer, m_Vertices.size(), 1, 0, 0);
+        vkCmdDrawIndexed(commandBuffer, static_cast<uint32_t>(m_Indices.size()), 1, 0, 0, 0);
+    }
 
-    // vkCmdDraw(commandBuffer, m_Vertices.size(), 1, 0, 0);
-    vkCmdDrawIndexed(commandBuffer, static_cast<uint32_t>(m_Indices.size()), 1, 0, 0, 0);
 
     vkCmdEndRendering(commandBuffer);
 
@@ -1278,21 +1315,31 @@ void HelloTriangleApplication::CopyBufferToImage(
 
     vkCmdCopyBufferToImage(commandBuffer, buffer, image, VK_IMAGE_LAYOUT_TRANSFER_DST_OPTIMAL, 1, &region);
 }
+void HelloTriangleApplication::UpdateUniformBuffers(uint32_t currentImage) {
 
-void HelloTriangleApplication::UpdateUniformBuffer(uint32_t currentImage) {
     static auto startTime = std::chrono::high_resolution_clock::now();
 
     auto currentTime = std::chrono::high_resolution_clock::now();
     float time = std::chrono::duration<float, std::chrono::seconds::period>(currentTime - startTime).count();
 
-    UniformBufferObject ubo{};
-    ubo.Model = glm::rotate(glm::mat4(1.0f), /*time * */ glm::radians(0.0f), glm::vec3(0.0f, 0.0f, 1.0f));
-    ubo.View = glm::lookAt(glm::vec3(2.0f, 2.0f, 2.0f), glm::vec3(0.0f, 0.0f, 0.0f), glm::vec3(0.0f, 0.0f, 1.0f));
-    ubo.Proj = glm::perspective(glm::radians(45.0f),
-        static_cast<float>(m_SwapchainExtnet.width) / static_cast<float>(m_SwapchainExtnet.height), 0.1f, 10.0f);
+    // Camera and projection matrices
+    glm::mat4 view = glm::lookAt(glm::vec3(2.0f, 2.0f, 6.0f), glm::vec3(0.0f, 0.0f, 0.0f), glm::vec3(0.0f, 1.0f, 0.0f));
+    glm::mat4 proj = glm::perspective(glm::radians(45.0f),
+        static_cast<float>(m_SwapchainExtnet.width) / static_cast<float>(m_SwapchainExtnet.height), 0.1f, 20.0f);
 
-    memcpy(m_UniformBuffersMapped[currentImage], &ubo, sizeof(ubo));
+    for (auto& gameObject : GameObjects) {
+
+        gameObject.Rotation.y += 0.01f;
+
+        glm::mat4 initialRotation = glm::rotate(glm::mat4(1.0f), glm::radians(-90.0f), glm::vec3(1.0f, 0.0f, 0.0f));
+        glm::mat4 model = gameObject.GetModelMatrix() * initialRotation;
+
+        UniformBufferObject ubo{.Model = model, .View = view, .Proj = proj};
+
+        memcpy(gameObject.UniformBuffersMapped[m_FrameIndex], &ubo, sizeof(ubo));
+    }
 }
+
 VkImageView HelloTriangleApplication::CreateImageView(
     VkImage const& image, VkFormat format, VkImageAspectFlags aspectFlags, uint32_t mipLevels) {
     VkImageViewCreateInfo viewInfo = {
@@ -1452,7 +1499,7 @@ void HelloTriangleApplication::DrawFrame() {
     VK_CHECK(vkResetCommandBuffer(m_CommandBuffers[m_FrameIndex], 0));
     RecordCommandBuffer(imageIndex);
 
-    UpdateUniformBuffer(m_FrameIndex);
+    UpdateUniformBuffers(m_FrameIndex);
 
     VkPipelineStageFlags waitDestinationStageMask = VK_PIPELINE_STAGE_COLOR_ATTACHMENT_OUTPUT_BIT;
 
