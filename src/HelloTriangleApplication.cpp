@@ -436,7 +436,7 @@ void HelloTriangleApplication::CreateLogicalDevice() {
     VkPhysicalDeviceFeatures2 features = {
         .sType = VK_STRUCTURE_TYPE_PHYSICAL_DEVICE_FEATURES_2,
         .pNext = &features11,
-        .features = {.samplerAnisotropy = true},
+        .features = {.sampleRateShading = VK_TRUE, .samplerAnisotropy = true},
     };
 
     float queuePriority = 0.5f;
@@ -678,7 +678,8 @@ void HelloTriangleApplication::CreateGraphicsPipeline() {
     VkPipelineMultisampleStateCreateInfo multisampling = {
         .sType = VK_STRUCTURE_TYPE_PIPELINE_MULTISAMPLE_STATE_CREATE_INFO,
         .rasterizationSamples = m_MsaaSamples,
-        .sampleShadingEnable = VK_FALSE,
+        .sampleShadingEnable = VK_TRUE,
+        .minSampleShading = 0.2f // min fraction for sample shading - closer to 1 is smoother
     };
 
     VkPipelineColorBlendAttachmentState colorBlendAttachment = {
