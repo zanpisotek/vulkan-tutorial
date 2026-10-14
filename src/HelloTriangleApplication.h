@@ -6,6 +6,7 @@
 #include <vulkan/vulkan.h>
 #include <GLFW/glfw3.h>
 #include <glm/glm.hpp>
+#include <glm/gtc/matrix_transform.hpp>
 
 #include <cstdlib>
 #include <iostream>
@@ -58,8 +59,36 @@ struct Vertex {
     }
 };
 
+struct GameObject {
+    // transform
+    glm::vec3 Position = { 0.0f, 0.0f, 0.0f};
+    glm::vec3 Rotation = {0.0f, 0.0f, 0.0f};
+    glm::vec3 Scale = { 1.0f, 1.0f, 1.0f};
+
+    // Uniform buffer for this object - one per frame in flight
+    std::vector<VkBuffer> UniformBuffers;
+    std::vector<VkDeviceMemory> UniformBufferMemory;
+    std::vector<void*> UniformBuffersMapped;
+
+    std::vector<VkDescriptorSet> DescriptorSets;
+
+    glm::mat4 GetModelMatrix() {
+        glm::mat4 model = glm::mat4(1.0f);
+
+        model = glm::translate(model, Position);
+        model = glm::rotate(model, Rotation.x, glm::vec3(1.0f, 0.0f, 0.0f));
+        model = glm::rotate(model, Rotation.y, glm::vec3(0.0f, 1.0f, 0.0f));
+        model = glm::rotate(model, Rotation.z, glm::vec3(0.0f, 0.0f, 1.0f));
+        model = glm::scale(model, Scale);
+
+        return model;
+    }
+};
+
 class HelloTriangleApplication {
   public:
+    static constexpr int MAX_OBJECTS = 3;
+
     static constexpr uint32_t WIDTH = 1600;
     static constexpr uint32_t HEIGHT = 900;
     const std::string MODEL_PATH = "assets/models/viking_room.obj";
@@ -68,6 +97,8 @@ class HelloTriangleApplication {
     const std::vector<const char*> validationLayers = {"VK_LAYER_KHRONOS_validation"};
 
     const std::vector<const char*> requiredDeviceExtensions = {VK_KHR_SWAPCHAIN_EXTENSION_NAME};
+
+    std::array<GameObject, MAX_OBJECTS> GameObjects;
 
 #ifdef DEBUG
     static constexpr bool EnableValidationLayers = true;
@@ -82,6 +113,8 @@ class HelloTriangleApplication {
     void InitVulkan();
     void MainLoop();
     void Cleanup();
+
+    void SetupGameObjects();
 
     void CreateInstance();
     void SetupDebugMessenger();
@@ -126,7 +159,7 @@ class HelloTriangleApplication {
     void CopyBuffer(VkBuffer& srcBuffer, VkBuffer& dstBuffer, VkDeviceSize size);
     void CopyBufferToImage(
         VkCommandBuffer& commandBuffer, const VkBuffer& buffer, VkImage& image, uint32_t width, uint32_t height);
-    void UpdateUniformBuffer(uint32_t currentImage);
+    void UpdateUniformBuffers(uint32_t currentImage);
     VkImageView CreateImageView(
         VkImage const& image, VkFormat format, VkImageAspectFlags aspectFlags, uint32_t mipLevels);
     VkFormat FindSupportedFormat(
